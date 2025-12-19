@@ -168,7 +168,7 @@ def get_reserve_data_from_browser(page, live_object_id):
         try:
             title_elem = page.query_selector('.live-build-info .content .title .text-wrap')
             if title_elem:
-                title_text = title_elem.inner_text().strip()
+                title_text = title_elem.text_content().strip()
                 reserve_data['标题'] = title_text
                 print(f"  找到标题: {title_text}")
             else:
@@ -201,8 +201,8 @@ def get_reserve_data_from_browser(page, live_object_id):
 
                 for label, value in zip(summary_labels, summary_values):
                     try:
-                        label_text = label.inner_text().strip()
-                        value_text = value.inner_text().strip()
+                        label_text = label.text_content().strip()
+                        value_text = value.text_content().strip()
 
                         if '预约人数' in label_text:
                             reserve_data['预约人数'] = value_text.strip()
@@ -246,8 +246,8 @@ def get_reserve_data_from_browser(page, live_object_id):
                         count_elem = item.query_selector('.reverse-data-legend-count')
 
                         if name_elem and count_elem:
-                            name = name_elem.inner_text().strip()
-                            count = count_elem.inner_text().strip()
+                            name = name_elem.text_content().strip()
+                            count = count_elem.text_content().strip()
 
                             # 动态添加字段（使用来源名称作为字段名）
                             reserve_data[name] = count
@@ -947,7 +947,7 @@ def _download_data_with_browser(
                     # 尝试获取标题（如果页面有）
                     title_elem = page.query_selector('.live-build-info .content .title .text-wrap')
                     if title_elem:
-                        failed_kwargs['title'] = title_elem.inner_text().strip()
+                        failed_kwargs['title'] = title_elem.text_content().strip()
                 except:
                     pass
                 
