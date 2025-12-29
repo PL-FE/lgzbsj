@@ -9,56 +9,122 @@ import os
 from playwright.sync_api import sync_playwright
 from openpyxl import load_workbook
 
-# 接口1配置
-URL_LIST = 'https://channels.weixin.qq.com/micro/statistic/cgi-bin/mmfinderassistant-bin/live/get_live_history?_aid=efe6990c-8415-419d-8812-7db45fa56682&_rid=694522d5-0ab49505&_pageUrl=https:%2F%2Fchannels.weixin.qq.com%2Fmicro%2Fstatistic%2Flive'
+# 接口2配置（预约数据）
+URL_DETAIL = 'https://channels.weixin.qq.com/micro/statistic/cgi-bin/mmfinderassistant-bin/statistic/live_single_data'
 
-# 接口2配置（详情接口）
-URL_DETAIL = 'https://channels.weixin.qq.com/platform/statistic/live?mode=detail&objetctId='
+# 接口3配置（带货商品的数据）
+URL_PRODUCT = 'https://channels.weixin.qq.com/micro/statistic/cgi-bin/mmfinderassistant-bin/statistic/get_single_live_ec_spu_data_page_v2'
 
-# 接口3配置（产品页面）
-URL_PRODUCT = 'https://channels.weixin.qq.com/platform/statistic/dashboardV4?objetctId='
+# 接口1配置（列表数据）
+# 已将请求 URL 固定为下面的值
+URL_LIST = 'https://channels.weixin.qq.com/micro/statistic/cgi-bin/mmfinderassistant-bin/live/get_live_history'
 
-# Headers - 根据实际 curl 请求配置
-HEADERS = {
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Pragma': 'no-cache',
-    'Referer': 'https://channels.weixin.qq.com/micro/statistic/live?mode=history',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0',
-    'sec-ch-ua': '"Chromium";v="142", "Microsoft Edge";v="142", "Not_A Brand";v="99"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"macOS"'
-}
+# 接口4配置（带货数据的整体转换数据）
+URL_EC_SUMMARY = 'https://channels.weixin.qq.com/micro/statistic/cgi-bin/mmfinderassistant-bin/statistic/get_single_live_funnel'
 
-# Cookies - 转换为字典格式供requests使用
-COOKIES_DICT = {
-    'pgv_pvid': '2606159544',
-    '_ga': 'GA1.2.536355108.1738852438',
-    '_ga_8YVFNWD1KC': 'GS1.2.1738852438.1.0.1738852438.0.0.0',
-    'RK': 'r4sAt+8+ZK',
-    'ptcz': '16fa8b88a66198ef2063eed4283cb3136f80ede34f354f086587e88041cfdc90',
-    'markHashId_L': '29887795-00db-48eb-a10e-df865b7be645',
-    '_clck': '9ivhsg|1|g1x|0',
-    'sessionid': 'BgAALtZSt0CYTeNQIy9Uly%2F5etx4VXmgLY1%2BHXsGfX2bxcyFHbb0KUinR1Gg4YeYMjFHmSuJ8ztizZRjjmbYlWShRm36yi8Oz9JWGV1cP65x',
-    'wxuin': '861440034'
-}
+# HEADERS 直接写死为空（可由浏览器会话覆盖）
+HEADERS = {}
 
-def get_time_range_for_half_year():
-    """获取半年的时间范围 (从6月1号到当前时间)"""
-    # 创建今年6月1号的时间戳
-    start_date = datetime(2025, 6, 1, 0, 0, 0)
-    start_time = int(start_date.timestamp())
-    end_time = int(time.time())  # 当前时间戳
+# COOKIES 直接写死为空（可由浏览器会话覆盖）
+COOKIES_DICT = {}
+
+
+ 
+# 浏览器 profile 目录（用于从持久化上下文读取 cookies / UA）
+BROWSER_USER_DATA_DIR = './browser_data'
+
+def get_browser_session_cookies_and_headers(user_data_dir=BROWSER_USER_DATA_DIR, url=None):
+    """
+    从 Playwright 的持久化上下文读取 cookies 和 User-Agent，返回 (headers_dict, cookies_dict)
+    如果失败返回 ({}, {})
+    """
+    try:
+        playwright = sync_playwright().start()
+        context = playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=True,
+        )
+
+        pages = context.pages
+        page = pages[0] if pages else context.new_page()
+
+        # 如果提供了 url，尝试打开以便获得对应域的 cookies
+        if url:
+            try:
+                page.goto(url, wait_until='domcontentloaded', timeout=5000)
+            except:
+                pass
+
+        # 获取 cookies 列表并转换为 dict
+        try:
+            cookies_list = context.cookies()
+            cookies = {c.get('name'): c.get('value') for c in cookies_list}
+        except:
+            cookies = {}
+
+        # 获取 User-Agent
+        try:
+            ua = page.evaluate("() => navigator.userAgent")
+            headers = {}
+            if ua:
+                headers['User-Agent'] = ua
+        except:
+            headers = {}
+
+        try:
+            context.close()
+        except:
+            pass
+        try:
+            playwright.stop()
+        except:
+            pass
+
+        return headers, cookies
+    except Exception as e:
+        print(f"  [Warning] 从浏览器会话获取 cookies/headers 失败: {e}")
+        try:
+            playwright.stop()
+        except:
+            pass
+        return {}, {}
+
+def get_time_range_for_half_year(start_date_str=None, end_date_str=None):
+    """获取时间范围
+
+    Args:
+        start_date_str: 开始日期字符串，格式为 'YYYY-MM-DD'，默认为今年1月1号
+        end_date_str: 结束日期字符串，格式为 'YYYY-MM-DD'，默认为当前时间
+
+    Returns:
+        tuple: (start_time, end_time) 时间戳
+    """
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+            start_time = int(start_date.timestamp())
+        except ValueError:
+            print(f"无效的开始日期格式: {start_date_str}，使用默认值")
+            start_date = datetime(2025, 1, 1, 0, 0, 0)
+            start_time = int(start_date.timestamp())
+    else:
+        # 默认从今年1月1号开始
+        start_date = datetime(2025, 1, 1, 0, 0, 0)
+        start_time = int(start_date.timestamp())
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str + ' 23:59:59', '%Y-%m-%d %H:%M:%S')
+            end_time = int(end_date.timestamp())
+        except ValueError:
+            print(f"无效的结束日期格式: {end_date_str}，使用当前时间")
+            end_time = int(time.time())
+    else:
+        end_time = int(time.time())  # 当前时间戳
+
     return start_time, end_time
 
-def fetch_live_data(page_size=10, current_page=1, start_time=None, end_time=None):
+def fetch_live_data(page_size=10, current_page=1, start_time=None, end_time=None, headers=None, cookies=None):
     """获取单页数据"""
     if start_time is None or end_time is None:
         start_time, end_time = get_time_range_for_half_year()
@@ -70,20 +136,22 @@ def fetch_live_data(page_size=10, current_page=1, start_time=None, end_time=None
         "filterStartTime": start_time,
         "filterEndTime": end_time,
         "timestamp": str(int(time.time() * 1000)),
-        "_log_finder_uin": "",
-        "_log_finder_id": "v2_060000231003b20faec8c5e58e18c6d4c605ed31b0777108d955d806e1454ae22f3ddeb0baf6@finder",
         "rawKeyBuff": None,
         "pluginSessionId": None,
         "scene": 7,
         "reqScene": 7
     }
     
+    # 优先使用传入的 headers/cookies（来自浏览器会话），否则回退到写死的 HEADERS/COOKIES_DICT
+    request_headers = headers if headers is not None and headers else HEADERS
+    request_cookies = cookies if cookies is not None and cookies else COOKIES_DICT
+
     try:
         response = requests.post(
             URL_LIST,
             json=payload,
-            headers=HEADERS,
-            cookies=COOKIES_DICT,
+            headers=request_headers,
+            cookies=request_cookies,
             timeout=10
         )
         response.raise_for_status()
@@ -769,8 +837,6 @@ def _download_data_with_browser(
     create_failed_record_func,
     sheet_name,
     id_column_name,
-    test_mode=False,
-    test_count=10,
     user_data_dir='./browser_data',
     keep_browser_open=True
 ):
@@ -785,8 +851,6 @@ def _download_data_with_browser(
         create_failed_record_func: 创建失败记录的函数，接受 (live_object_id, **kwargs) 参数
         sheet_name: Excel工作表名称
         id_column_name: ID列名称（用于设置文本格式）
-        test_mode: 是否测试模式
-        test_count: 测试模式下的数据条数
         user_data_dir: 浏览器数据目录
         keep_browser_open: 是否保持浏览器打开
 
@@ -805,13 +869,14 @@ def _download_data_with_browser(
 
     # 先从xlsx1.xlsx读取liveObjectId列表
     try:
-        df_list = pd.read_excel('xlsx1.xlsx', sheet_name='直播数据')
+        # 尝试读取新工作表名称，如果不存在则回退到旧名称（向后兼容）
+        try:
+            df_list = pd.read_excel('xlsx1.xlsx', sheet_name='列表数据')
+        except ValueError:
+            # 如果新工作表名称不存在，尝试旧的工作表名称
+            df_list = pd.read_excel('xlsx1.xlsx', sheet_name='直播数据')
         live_ids = [str(live_id) for live_id in df_list['liveObjectId'].tolist()]  # 确保全部转换为字符串
 
-        # 测试模式：只取前N条
-        if test_mode:
-            live_ids = live_ids[:test_count]
-            print(f"[测试模式] 仅下载前 {len(live_ids)} 条数据")
 
     except Exception as e:
         print(f"读取xlsx1.xlsx失败: {e}")
@@ -990,181 +1055,579 @@ def _download_data_with_browser(
     print(f"\n数据爬取完成！所有数据已实时保存到 {output_file}")
     return True
 
-def download_detail_data(output_file='xlsx2.xlsx', test_mode=False, test_count=10, user_data_dir='./browser_data', keep_browser_open=True):
-    """用浏览器下载详情数据（包括预约数据），使用持久化上下文保存登录状态
-    
-    Args:
-        output_file: 输出文件名
-        test_mode: 是否测试模式
-        test_count: 测试模式下的数据条数
-        user_data_dir: 浏览器数据目录
-        keep_browser_open: 是否保持浏览器打开（默认True，程序结束后保持浏览器打开）
-    """
-    def create_detail_failed_record(live_object_id, current_url='', title='', **kwargs):
-        """创建详情数据的失败记录"""
-        return create_failed_record(live_object_id, current_url, title)
-    
-    # 调用通用下载函数
-    return _download_data_with_browser(
+def download_detail_data(output_file='xlsx2.xlsx', user_data_dir='./browser_data'):
+    """下载预约数据（接口2）"""
+    return download_api_data(
         output_file=output_file,
         data_type_name='预约数据',
-        get_data_func=get_reserve_data_from_browser,
-        is_data_valid_func=is_reserve_data_valid,
-        flatten_data_func=flatten_detail_data,
-        create_failed_record_func=create_detail_failed_record,
-        sheet_name='详情数据',
+        fetch_func=fetch_live_single_data,
+        flatten_func=flatten_live_single_data,
+        sheet_name='预约数据',
         id_column_name='liveObjectId',
-        test_mode=test_mode,
-        test_count=test_count,
-        user_data_dir=user_data_dir,
-        keep_browser_open=keep_browser_open
+        user_data_dir=user_data_dir
     )
 
-def download_product_data(output_file='xlsx3.xlsx', test_mode=False, test_count=10, user_data_dir='./browser_data', keep_browser_open=True):
-    """用浏览器下载产品数据，使用持久化上下文保存登录状态
-    
-    Args:
-        output_file: 输出文件名
-        test_mode: 是否测试模式
-        test_count: 测试模式下的数据条数
-        user_data_dir: 浏览器数据目录
-        keep_browser_open: 是否保持浏览器打开（默认True，程序结束后保持浏览器打开）
-    """
-    def create_product_failed_record(live_object_id, current_url='', **kwargs):
-        """创建产品数据的失败记录"""
-        return {
-            'liveobjectid': str(live_object_id),
-            '当前url': current_url,
-        }
-    
-    # 调用通用下载函数
-    return _download_data_with_browser(
-        output_file=output_file,
-        data_type_name='产品数据',
-        get_data_func=get_product_data_from_browser,
-        is_data_valid_func=is_product_data_valid,
-        flatten_data_func=flatten_product_data,
-        create_failed_record_func=create_product_failed_record,
-        sheet_name='产品数据',
-        id_column_name='liveobjectid',
-        test_mode=test_mode,
-        test_count=test_count,
-        user_data_dir=user_data_dir,
-        keep_browser_open=keep_browser_open
-    )
-
-def download_half_year_data(output_file='xlsx1.xlsx'):
-    """下载半年的数据"""
-    # 备份现有文件
+def download_product_data(output_file='xlsx3.xlsx', user_data_dir='./browser_data'):
+    """下载带货商品的数据（接口3）"""
+    # 备份旧文件
     backup_file(output_file)
-    
-    print("开始下载半年直播数据...")
+
+    print(f"开始下载直播商品SPU数据...")
     print(f"输出文件: {output_file}")
-    all_data = []
-    
-    start_time, end_time = get_time_range_for_half_year()
-    print(f"时间范围: {datetime.fromtimestamp(start_time)} 到 {datetime.fromtimestamp(end_time)}")
-    
-    current_page = 1
-    page_size = 50  # 每页50条记录
-    total_count = None
-    
-    while True:
-        print(f"正在下载第 {current_page} 页...")
-        
-        result = fetch_live_data(
-            page_size=page_size,
-            current_page=current_page,
-            start_time=start_time,
-            end_time=end_time
-        )
-        
-        if result is None:
-            print(f"第 {current_page} 页下载失败，停止")
-            break
-        
-        live_list = result.get('liveObjectList', [])
-        
-        if not live_list:
-            print(f"第 {current_page} 页无数据，下载完成")
-            break
-        
-        # 展平数据并添加到列表
-        for live_obj in live_list:
-            flat_obj = flatten_live_data(live_obj)
-            all_data.append(flat_obj)
-        
-        # 获取总数
-        if total_count is None:
-            total_count = result.get('totalLiveCount', 0)
-            print(f"总共有 {total_count} 条数据")
-        
-        print(f"已下载 {len(all_data)} 条数据")
-        
-        # 检查是否已下载所有数据
-        if len(all_data) >= total_count:
-            print(f"已获取所有 {total_count} 条数据")
-            break
-        
-        current_page += 1
-        time.sleep(1)  # 暂停1秒，避免请求过于频繁
-    
-    # 保存到Excel
-    if all_data:
-        df = pd.DataFrame(all_data)
-        # 确保 liveObjectId 列是字符串类型
-        if 'liveObjectId' in df.columns:
-            df['liveObjectId'] = df['liveObjectId'].astype(str)
-        
-        # 保存到Excel文件，使用 openpyxl 引擎以便设置格式
-        with pd.ExcelWriter(output_file, engine='openpyxl', mode='w') as writer:
-            df.to_excel(writer, index=False, sheet_name='直播数据')
-            
-            # 获取工作表并设置 liveObjectId 列为文本格式
-            ws = writer.sheets['直播数据']
-            # 查找 liveObjectId 列的索引
-            header_row = 1
-            liveobjectid_col = None
-            for col_idx, cell in enumerate(ws[header_row], 1):
-                if cell.value == 'liveObjectId':
-                    liveobjectid_col = col_idx
-                    break
-            
-            if liveobjectid_col:
-                # 设置该列所有单元格的格式为文本（包括表头和数据）
-                for row_idx in range(1, ws.max_row + 1):  # 包括表头
-                    cell = ws.cell(row=row_idx, column=liveobjectid_col)
-                    if cell.value is not None:
-                        cell.value = str(cell.value)
-                    cell.number_format = '@'  # '@' 表示文本格式
-        print(f"数据已保存到 {output_file}")
-        print(f"共保存 {len(all_data)} 条记录")
-        return True
-    else:
-        print("未获取到任何数据")
+
+    all_records = []
+
+    # 读取 liveObjectId 列表（来自 xlsx1.xlsx）
+    try:
+        # 尝试读取新工作表名称，如果不存在则回退到旧名称（向后兼容）
+        try:
+            df_list = pd.read_excel('xlsx1.xlsx', sheet_name='列表数据')
+        except ValueError:
+            # 如果新工作表名称不存在，尝试旧的工作表名称
+            df_list = pd.read_excel('xlsx1.xlsx', sheet_name='直播数据')
+        live_ids = [str(live_id) for live_id in df_list['liveObjectId'].tolist()]
+    except Exception as e:
+        print(f"读取 xlsx1.xlsx 失败: {e}")
         return False
 
-if __name__ == '__main__':
-    # 下载列表数据
-    # download_half_year_data()
-    
-    # 下载预约详情数据（用浏览器方式）- 下载全部数据
-    # 配置项说明：
-    # - test_mode: 是否测试模式（默认False，下载全部数据）
-    # - keep_browser_open: 程序结束后是否保持浏览器打开（默认True）
-    # 注意：每次运行都会添加新记录，不会更新已存在的记录，文件名会自动添加年月日后缀
-    # download_detail_data(
-    #     test_mode=False, 
-    #     keep_browser_open=True
-    # )
-    
-    # 下载产品数据（用浏览器方式）- 下载全部数据
-    # 配置项说明：
-    # - test_mode: 是否测试模式（默认False，下载全部数据）
-    # - keep_browser_open: 程序结束后是否保持浏览器打开（默认True）
-    # 注意：每次运行都会添加新记录，不会更新已存在的记录，文件名会自动添加年月日后缀
-    # 输出文件名为 xlsx3_YYYYMMDDHHMMSS.xlsx
-    download_product_data(
-        test_mode=False, 
-        keep_browser_open=True
+    # 尝试从浏览器会话获取 headers/cookies（只做一次）
+    browser_headers, browser_cookies = get_browser_session_cookies_and_headers(
+        user_data_dir=user_data_dir,
+        url=URL_DETAIL  # 使用接口2的URL来获取cookies
     )
+    if browser_headers or browser_cookies:
+        print("已从浏览器会话获取 cookies/headers，将用于接口请求")
+    else:
+        browser_headers, browser_cookies = None, None
+
+    for idx, live_id in enumerate(live_ids, 1):
+        print(f"[{idx}/{len(live_ids)}] 获取 {live_id} 的带货商品的数据...")
+        data = fetch_spu_data(live_id, headers=browser_headers, cookies=browser_cookies)
+        if data is None:
+            print(f"  警告: 未获取到数据，保存空记录")
+            rec = {'liveObjectId': str(live_id)}
+            all_records.append(rec)
+        else:
+            rec_list = flatten_spu_data(live_id, data)
+            all_records.extend(rec_list)
+
+        # 每次请求间隔 1 秒，避免过快
+        time.sleep(1)
+
+        # 每 50 条实时保存一次，防止意外中断丢失数据
+        if idx % 50 == 0:
+            save_records_to_excel_file(output_file, all_records, sheet_name='产品数据', id_column_name='liveObjectId', silent=True)
+
+    # 最终保存
+    success = save_records_to_excel_file(output_file, all_records, sheet_name='产品数据', id_column_name='liveObjectId', silent=False)
+    if success:
+        print(f"直播商品SPU数据已保存到 {output_file}，共 {len(all_records)} 条记录")
+        return True
+    else:
+        print("保存直播商品SPU数据失败")
+        return False
+
+
+def fetch_live_single_data(live_object_id, headers=None, cookies=None, timeout=10):
+    """调用接口2，获取指定 liveObjectId 的预约数据汇总，返回 data 字典或 None"""
+    payload = {
+        "liveObjectId": str(live_object_id),
+        "timestamp": str(int(time.time() * 1000)),
+        "_log_finder_uin": None,
+        "_log_finder_id": "v2_060000231003b20faec8c5e58e18c6d4c605ed31b0777108d955d806e1454ae22f3ddeb0baf6@finder",
+        "rawKeyBuff": None,
+        "pluginSessionId": None,
+        "scene": 7,
+        "reqScene": 7
+    }
+
+    request_headers = headers if headers is not None and headers else HEADERS
+    request_cookies = cookies if cookies is not None and cookies else COOKIES_DICT
+
+    try:
+        resp = requests.post(URL_DETAIL, json=payload, headers=request_headers, cookies=request_cookies, timeout=timeout)
+        resp.raise_for_status()
+        j = resp.json()
+        if j.get('errCode') == 0:
+            return j.get('data', {})
+        else:
+            print(f"接口2返回错误: {j.get('errMsg')}")
+            return None
+    except Exception as e:
+        print(f"请求接口2失败: {e}")
+        return None
+
+
+def fetch_ec_summary(live_object_id, headers=None, cookies=None, timeout=10):
+    """调用接口4，获取指定 liveObjectId 的带货数据的整体转换数据，返回 data 字典或 None"""
+    payload = {
+        "liveObjectId": str(live_object_id),
+        "timestamp": str(int(time.time() * 1000)),
+        "_log_finder_uin": None,
+        "_log_finder_id": None,
+        "rawKeyBuff": None,
+        "pluginSessionId": None,
+        "scene": 7,
+        "reqScene": 7
+    }
+
+    request_headers = headers if headers is not None and headers else HEADERS
+    request_cookies = cookies if cookies is not None and cookies else COOKIES_DICT
+
+    try:
+        resp = requests.post(URL_EC_SUMMARY, json=payload, headers=request_headers, cookies=request_cookies, timeout=timeout)
+        resp.raise_for_status()
+        j = resp.json()
+        if j.get('errCode') == 0:
+            return j.get('data', {})
+        else:
+            print(f"接口4返回错误: {j.get('errMsg')}")
+            return None
+    except Exception as e:
+        print(f"请求接口4失败: {e}")
+        return None
+
+
+def fetch_spu_data(live_object_id, headers=None, cookies=None, timeout=10):
+    """调用接口3，获取指定 liveObjectId 的带货商品的数据，返回 data 字典或 None"""
+    payload = {
+        "liveObjectId": str(live_object_id),
+        "offset": 0,
+        "limit": 15,
+        "spuType": 0,
+        "spuThreshold": {
+            "lowStock": "10",
+            "unpaidOrder": "10",
+            "newBuyerConv": "10"
+        },
+        "spuSrc": 0,
+        "fieldList": [
+            "stock", "create_pv", "pay_pv", "gmv", "clk_pay_ratio", "create_uv",
+            "pay_uv", "new_customer_pay_pv", "no_finish_pv", "share_uv", "exp_uv",
+            "exp_pv", "clk_uv", "clk_pv", "exp_clk_ratio", "clk_pay_ratio_pv",
+            "new_customer_conversion_rate", "id", "explanation_count",
+            "new_customer_conversion_rate_pv", "refund_rate", "refund_uv",
+            "refund_pv", "refund_amount"
+        ],
+        "timestamp": str(int(time.time() * 1000)),
+        "_log_finder_uin": None,
+        "_log_finder_id": "v2_060000231003b20faec8c5e58e18c6d4c605ed31b0777108d955d806e1454ae22f3ddeb0baf6@finder",
+        "rawKeyBuff": None,
+        "pluginSessionId": None,
+        "scene": 7,
+        "reqScene": 7
+    }
+
+    request_headers = headers if headers is not None and headers else HEADERS
+    request_cookies = cookies if cookies is not None and cookies else COOKIES_DICT
+
+    try:
+        resp = requests.post(URL_PRODUCT, json=payload, headers=request_headers, cookies=request_cookies, timeout=timeout)
+        resp.raise_for_status()
+        j = resp.json()
+        if j.get('errCode') == 0:
+            return j.get('data', {})
+        else:
+            print(f"接口3返回错误: {j.get('errMsg')}")
+            return None
+    except Exception as e:
+        print(f"请求接口3失败: {e}")
+        return None
+
+
+def flatten_live_single_data(live_object_id, single_data):
+    """将接口2的 data 展平为一条记录（dict），并确保所有值为字符串"""
+    if single_data is None:
+        return None
+
+    flat = {'liveObjectId': str(live_object_id)}
+
+    # 处理预约通知用户数和比率
+    flat['reserveNoticeUserCount'] = str(single_data.get('reserveNoticeUserCount', ''))
+    flat['reserveNoticeJoinliveRatio'] = str(single_data.get('reserveNoticeJoinliveRatio', ''))
+
+    # 处理场景数组，将每个场景的数据作为单独字段
+    # 遍历data中的所有项，找出数组类型的项（即场景数据）
+    for key, value in single_data.items():
+        if isinstance(value, list):
+            # 这是场景数据数组
+            for item in value:
+                if isinstance(item, dict) and 'scene' in item and 'reserveNoticeUserCount' in item:
+                    scene = item['scene']
+                    count = item['reserveNoticeUserCount']
+                    flat[f'scene_{scene}_reserveNoticeUserCount'] = str(count)
+
+    return flat
+
+
+def flatten_ec_summary(live_object_id, ec_data):
+    """将接口4的 data 展平为一条记录（dict），并确保所有值为字符串"""
+    if ec_data is None:
+        return None
+
+    flat = {'liveObjectId': str(live_object_id)}
+    # 将 data 中的键值全部转为字符串并加入
+    for k, v in ec_data.items():
+        # 保持原始键名，值转换为字符串（None -> ''）
+        if v is None:
+            flat[k] = ''
+        elif isinstance(v, (int, float, bool)):
+            flat[k] = str(v)
+        else:
+            flat[k] = str(v).strip()
+
+    return flat
+
+
+def flatten_spu_data(live_object_id, spu_data):
+    """将接口3的 data 展平为多条记录（list），每条记录的第一列是liveObjectId"""
+    if spu_data is None:
+        return []
+
+    spu_data_list = spu_data.get('spuDataList', [])
+
+    if not spu_data_list:
+        # 如果没有数据，至少返回一条包含liveObjectId的记录
+        return [{'liveObjectId': str(live_object_id)}]
+
+    flattened_data = []
+
+    for spu_item in spu_data_list:
+        flat_record = {'liveObjectId': str(live_object_id)}
+
+        # 处理baseData字段
+        base_data = spu_item.get('baseData', {})
+        if base_data:
+            flat_record['srcSpuId'] = str(base_data.get('srcSpuId', ''))
+            flat_record['spuId'] = str(base_data.get('spuId', ''))
+            flat_record['src'] = str(base_data.get('src', ''))
+            flat_record['spuName'] = str(base_data.get('spuName', ''))
+            flat_record['thumbUrl'] = str(base_data.get('thumbUrl', ''))
+            flat_record['price'] = str(base_data.get('price', ''))
+            flat_record['srcName'] = str(base_data.get('srcName', ''))
+            flat_record['baseStock'] = str(base_data.get('stock', ''))  # 重命名避免冲突
+
+        # 处理其他字段
+        for key, value in spu_item.items():
+            if key not in ['baseData']:  # baseData已单独处理
+                if value is None:
+                    flat_record[key] = ''
+                elif isinstance(value, (int, float, bool)):
+                    flat_record[key] = str(value)
+                else:
+                    flat_record[key] = str(value).strip()
+
+        flattened_data.append(flat_record)
+
+    return flattened_data
+
+
+def download_ec_summary(output_file='xlsx4.xlsx', user_data_dir='./browser_data'):
+    """下载带货数据的整体转换数据（接口4）"""
+    return download_api_data(
+        output_file=output_file,
+        data_type_name='带货数据的整体转换数据',
+        fetch_func=fetch_ec_summary,
+        flatten_func=flatten_ec_summary,
+        sheet_name='EC汇总',
+        id_column_name='liveObjectId',
+        user_data_dir=user_data_dir
+    )
+
+def check_login_status(user_data_dir='./browser_data'):
+    """检查登录状态，询问用户是否已登录，如果未登录则使用 Playwright 打开登录页面"""
+    login_url = 'https://channels.weixin.qq.com/login.html'
+    
+    print("=" * 60)
+    print("登录状态检查")
+    print("=" * 60)
+    
+    while True:
+        user_input = input("您是否已登录微信视频号助手？(y/n): ").strip().lower()
+        
+        if user_input in ['y', 'yes', '是', 'Y']:
+            print("已确认登录状态，开始执行程序...")
+            return True
+        elif user_input in ['n', 'no', '否', 'N']:
+            print(f"\n请先登录后再运行程序。")
+            print(f"登录地址: {login_url}")
+            print("\n正在使用 Playwright 打开登录页面...")
+            
+            # 使用 Playwright 打开登录页面
+            playwright = sync_playwright().start()
+            try:
+                # 使用持久化上下文，这样登录状态会被保存
+                context = playwright.chromium.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    headless=False,
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='zh-CN',
+                    timezone_id='Asia/Shanghai',
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--window-size=1920,1080',
+                    ]
+                )
+                
+                # 获取第一个页面或创建新页面
+                pages = context.pages
+                if pages:
+                    page = pages[0]
+                else:
+                    page = context.new_page()
+                
+                # 打开登录页面
+                page.goto(login_url)
+                print("登录页面已打开，请在浏览器中完成登录。")
+                print("登录完成后，请关闭浏览器窗口，然后重新运行此程序。")
+                print("\n按 Enter 键继续...")
+                input()
+                
+                # 关闭浏览器上下文
+                context.close()
+                playwright.stop()
+            except Exception as e:
+                print(f"打开登录页面失败: {e}")
+                print(f"请手动访问: {login_url}")
+                try:
+                    playwright.stop()
+                except:
+                    pass
+            
+            print("\n程序已退出。请登录后重新运行。")
+            return False
+        else:
+            print("请输入 y 或 n（是/否）")
+
+def download_api_data(
+    output_file,
+    data_type_name,
+    fetch_func,
+    flatten_func,
+    sheet_name,
+    id_column_name,
+    user_data_dir='./browser_data',
+    is_batch_request=False,
+    batch_params=None
+):
+    """
+    统一的API数据下载函数
+
+    Args:
+        output_file: 输出文件名
+        data_type_name: 数据类型名称（用于日志输出）
+        fetch_func: 数据获取函数
+        flatten_func: 数据展平函数
+        sheet_name: Excel工作表名称
+        id_column_name: ID列名称
+        user_data_dir: 浏览器数据目录
+        is_batch_request: 是否为批量请求（如接口1的分页）
+        batch_params: 批量请求的参数（仅当is_batch_request=True时使用）
+    """
+    # 备份旧文件
+    backup_file(output_file)
+
+    print(f"开始下载{data_type_name}...")
+    print(f"输出文件: {output_file}")
+
+    all_records = []
+
+    # 对于批量请求（接口1），不需要读取xlsx1.xlsx，直接进行批量获取
+    if is_batch_request:
+        # 尝试从浏览器会话获取 headers/cookies（只做一次）
+        browser_headers, browser_cookies = get_browser_session_cookies_and_headers(
+            user_data_dir=user_data_dir,
+            url=URL_LIST
+        )
+        if browser_headers or browser_cookies:
+            print("已从浏览器会话获取 cookies/headers，将用于接口请求")
+        else:
+            browser_headers, browser_cookies = None, None
+
+        # 批量请求处理（接口1）
+        start_date = batch_params.get('start_date') if batch_params else None
+        end_date = batch_params.get('end_date') if batch_params else None
+        start_time, end_time = get_time_range_for_half_year(start_date, end_date)
+
+        start_datetime = datetime.fromtimestamp(start_time)
+        end_datetime = datetime.fromtimestamp(end_time)
+        print(f"时间范围: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')} 到 {end_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+        if start_date or end_date:
+            print(f"自定义时间范围: {start_date or '默认'} 到 {end_date or '当前时间'}")
+
+        current_page = 1
+        page_size = batch_params.get('page_size', 50) if batch_params else 50
+        total_count = None
+
+        while True:
+            print(f"正在下载第 {current_page} 页...")
+
+            result = fetch_func(
+                page_size=page_size,
+                current_page=current_page,
+                start_time=start_time,
+                end_time=end_time,
+                headers=browser_headers,
+                cookies=browser_cookies
+            )
+
+            if result is None:
+                print(f"第 {current_page} 页下载失败，停止")
+                break
+
+            data_list = result.get('liveObjectList', [])
+
+            if not data_list:
+                print(f"第 {current_page} 页无数据，下载完成")
+                break
+
+            # 展平数据并添加到列表
+            for data_obj in data_list:
+                flat_obj = flatten_func(data_obj)
+                all_records.append(flat_obj)
+
+            # 获取总数
+            if total_count is None:
+                total_count = result.get('totalLiveCount', 0)
+                print(f"总共有 {total_count} 条数据")
+
+            print(f"已下载 {len(all_records)} 条数据")
+
+            # 检查是否已下载所有数据
+            if len(all_records) >= total_count:
+                print(f"已获取所有 {total_count} 条数据")
+                break
+
+            current_page += 1
+            time.sleep(1)  # 暂停1秒，避免请求过于频繁
+    else:
+        # 单条请求处理（接口2、4）- 需要先读取xlsx1.xlsx获取liveObjectId列表
+        # 读取 liveObjectId 列表（来自 xlsx1.xlsx）
+        try:
+            # 尝试读取新工作表名称，如果不存在则回退到旧名称（向后兼容）
+            try:
+                df_list = pd.read_excel('xlsx1.xlsx', sheet_name='列表数据')
+            except ValueError:
+                # 如果新工作表名称不存在，尝试旧的工作表名称
+                df_list = pd.read_excel('xlsx1.xlsx', sheet_name='直播数据')
+            live_ids = [str(live_id) for live_id in df_list['liveObjectId'].tolist()]
+        except Exception as e:
+            print(f"读取 xlsx1.xlsx 失败: {e}")
+            return False
+
+        # 尝试从浏览器会话获取 headers/cookies（只做一次）
+        browser_headers, browser_cookies = get_browser_session_cookies_and_headers(
+            user_data_dir=user_data_dir,
+            url=URL_LIST if data_type_name == '列表数据' else None
+        )
+        if browser_headers or browser_cookies:
+            print("已从浏览器会话获取 cookies/headers，将用于接口请求")
+        else:
+            browser_headers, browser_cookies = None, None
+
+        for idx, live_id in enumerate(live_ids, 1):
+            print(f"[{idx}/{len(live_ids)}] 获取 {live_id} 的{data_type_name}...")
+            data = fetch_func(live_id, headers=browser_headers, cookies=browser_cookies)
+            if data is None:
+                print(f"  警告: 未获取到数据，保存空记录")
+                rec = {id_column_name: str(live_id)}
+                all_records.append(rec)
+            else:
+                rec = flatten_func(live_id, data)
+                all_records.append(rec)
+
+            # 每次请求间隔 1 秒，避免过快
+            time.sleep(1)
+
+            # 每 50 条实时保存一次，防止意外中断丢失数据
+            if idx % 50 == 0:
+                save_records_to_excel_file(output_file, all_records, sheet_name=sheet_name, id_column_name=id_column_name, silent=True)
+
+    # 最终保存
+    success = save_records_to_excel_file(output_file, all_records, sheet_name=sheet_name, id_column_name=id_column_name, silent=False)
+    if success:
+        print(f"{data_type_name}已保存到 {output_file}，共 {len(all_records)} 条记录")
+        return True
+    else:
+        print(f"保存{data_type_name}失败")
+        return False
+
+def download_half_year_data(output_file='xlsx1.xlsx', user_data_dir='./browser_data', start_date=None, end_date=None):
+    """下载列表数据（接口1）
+
+    Args:
+        output_file: 输出文件名
+        user_data_dir: 浏览器数据目录
+        start_date: 开始日期，格式为 'YYYY-MM-DD'，默认为今年1月1号
+        end_date: 结束日期，格式为 'YYYY-MM-DD'，默认为当前日期
+
+    Examples:
+        # 使用默认时间范围（今年1月1号到当前时间）
+        download_half_year_data()
+
+        # 指定时间范围
+        download_half_year_data(start_date='2024-01-01', end_date='2024-12-31')
+
+        # 只指定开始日期，结束日期使用当前时间
+        download_half_year_data(start_date='2024-06-01')
+
+        # 只指定结束日期，开始日期使用默认值（今年1月1号）
+        download_half_year_data(end_date='2024-12-31')
+    """
+    return download_api_data(
+        output_file=output_file,
+        data_type_name='列表数据',
+        fetch_func=fetch_live_data,
+        flatten_func=flatten_live_data,
+        sheet_name='列表数据',
+        id_column_name='liveObjectId',
+        user_data_dir=user_data_dir,
+        is_batch_request=True,
+        batch_params={
+            'page_size': 50,
+            'start_date': start_date,
+            'end_date': end_date
+        }
+    )
+
+if __name__ == '__main__':
+    # 检查登录状态
+    if not check_login_status():
+        exit(0)
+
+    print("\n" + "=" * 60)
+    print("开始执行数据下载任务")
+    print("=" * 60 + "\n")
+
+    # 下载列表数据（接口1）
+    print("正在下载列表数据（接口1）...")
+    success1 = download_half_year_data()  # 使用默认时间范围（今年1月1号到当前时间）
+    # download_half_year_data(start_date='2024-01-01', end_date='2024-12-31')  # 指定时间范围
+
+    if success1:
+        print("\n" + "=" * 60)
+        print("列表数据下载完成，开始下载其他接口数据")
+        print("=" * 60 + "\n")
+
+        # 下载预约数据（接口2）- 下载全部数据
+        # 输出文件名为 xlsx2.xlsx
+        print("正在下载预约数据（接口2）...")
+        download_detail_data()
+
+        # 下载带货商品的数据（接口3）- 下载全部数据
+        # 输出文件名为 xlsx3.xlsx
+        print("正在下载带货商品的数据（接口3）...")
+        download_product_data()
+
+        # 下载带货数据的整体转换数据（接口4）
+        # 输出文件名为 xlsx4_YYYYMMDDHHMMSS.xlsx
+        print("正在下载带货数据的整体转换数据（接口4）...")
+        download_ec_summary()
+
+        print("\n" + "=" * 60)
+        print("所有接口数据下载完成！")
+        print("=" * 60 + "\n")
+    else:
+        print("\n" + "=" * 60)
+        print("列表数据下载失败，跳过其他接口的下载")
+        print("=" * 60 + "\n")
